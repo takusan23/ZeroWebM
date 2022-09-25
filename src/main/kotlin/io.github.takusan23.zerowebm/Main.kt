@@ -24,7 +24,7 @@ val UNKNOWN_SIZE = byteArrayOf(0x01, 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte()
 
 val initSegmentFile = File("init.webm")
 
-/** 前回 [writeSampleData] を読んだときの Timescale */
+/** 前回 [createSimpleBlock] を読んだときの Timescale */
 private var prevTimescale = 0
 
 /*
@@ -173,33 +173,6 @@ fun createEBMLHeader(): EBMLElement {
     // ヘッダー部を書く
     val ebmlValue = ebmlVersion.toElementBytes() + readVersion.toElementBytes() + maxIdLength.toElementBytes() + maxSizeLength.toElementBytes() + docType.toElementBytes() + docTypeVersion.toElementBytes() + docTypeReadVersion.toElementBytes()
     return EBMLElement(MatroskaTags.EBML, ebmlValue)
-}
-
-/** EBML要素のデータクラス */
-data class EBMLElement(
-    val tagId: MatroskaTags,
-    val value: ByteArray,
-    val dataSize: ByteArray = createDataSize(value),
-) {
-    /** ID DataSize Value を繋げたバイト配列を返す */
-    fun toElementBytes() = (tagId.id + dataSize + value)
-
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (javaClass != other?.javaClass) return false
-
-        other as EBMLElement
-
-        if (tagId != other.tagId) return false
-        if (!value.contentEquals(other.value)) return false
-        return true
-    }
-
-    override fun hashCode(): Int {
-        var result = tagId.hashCode()
-        result = 31 * result + value.contentHashCode()
-        return result
-    }
 }
 
 /**
