@@ -12,7 +12,7 @@ import java.io.File
 
 fun main() {
     // 適当にWebMのパスを
-    val bytes = File("""""").readBytes()
+    val bytes = File("""C://Users/takusan23/Desktop/firefox.webm""").readBytes()
     val elementList = arrayListOf<MatroskaElement>()
     // トップレベルのパース位置
     // EBML Segment Cluster など
@@ -41,8 +41,9 @@ fun main() {
  */
 fun parseChildElement(byteArray: ByteArray): List<MatroskaElement> {
     val childElementList = arrayListOf<MatroskaElement>()
+    val totalSize = byteArray.size
     var readPos = 0
-    while (byteArray.size > readPos) {
+    while (totalSize > readPos) {
         val element = parseElement(byteArray, readPos)
         // 親要素があれば子要素をパースしていく
         when (element.tag) {
@@ -60,6 +61,14 @@ fun parseChildElement(byteArray: ByteArray): List<MatroskaElement> {
             else -> childElementList += element
         }
         readPos += element.elementSize
+
+        // もしかしたら他のブラウザでもなるかもしれないけど、
+        // Chromeの場合、WebMのファイル分割は SimpleBlock の途中だろうとぶった切ってくるらしく、中途半端にデータが余ることがある
+        // 例：タグの A3 で終わるなど
+        // その場合にエラーにならないように、この後3バイト（ID / DataSize / Data それぞれ1バイト）ない場合はループを抜ける
+        if (totalSize < readPos + 3) {
+            break
+        }
     }
     return childElementList
 }
@@ -90,12 +99,71 @@ fun parseElement(byteArray: ByteArray, startPos: Int): MatroskaElement {
         readPos += dataSize
         MatroskaElement(idElement, dataBytes, readPos - startPos)
     } else {
-        // もし -1 (長さ不定)の場合は全部取得するようにする
-        // ただし全部取得すると壊れるので、直さないといけない
-        val dataBytes = byteArray.copyOfRange(readPos, byteArray.size)
+        // もし -1 (長さ不定)の場合
+        val unknownDataSize = if (idElement == MatroskaTags.Cluster) {
+            // Clusterの場合は、次のClusterまでの子要素の合計サイズを出す
+            readPos + byteArray.copyOfRange(readPos, byteArray.size).calcUnknownElementSize()
+        } else {
+            // Segmentの場合はすべて取得
+            byteArray.size
+        }
+        val dataBytes = byteArray.copyOfRange(readPos, unknownDataSize)
         readPos += dataBytes.size
         MatroskaElement(idElement, dataBytes, readPos - startPos)
     }
+}
+
+/**
+ * DataSize が 0x01 0xFF 0xFF 0xFF 0xFF 0xFF 0xFF 0xFF だった場合にサイズを出す。算出方法は以下。多分 Cluster 以外では動かない
+ * Cluster のそれぞれの子要素にはサイズが入っているため、次のClusterが現れるまで足していくことでサイズが分かる。
+ */
+fun ByteArray.calcUnknownElementSize(): Int {
+    val byteSize = this.size
+    var totalReadPos = 0
+    while (true) {
+        // 子要素を順番に見て、長さだけ足していく
+
+        var readPos = totalReadPos
+
+        val idLength = this[readPos].getVIntSize()
+        // IDのバイト配列
+        val idBytes = this.copyOfRange(readPos, readPos + idLength)
+        val idElement = MatroskaTags.find(idBytes)!!
+        readPos += idLength
+
+        // トップレベル要素？別のClusterにぶつかったらもう解析しない
+        if (idElement == MatroskaTags.Cluster) {
+            break
+        }
+
+        // DataSize部
+        val dataSizeLength = this[readPos].getVIntSize()
+        val dataSizeBytes = this.copyOfRange(readPos, readPos + dataSizeLength)
+        val dataSize = dataSizeBytes.toDataSize()
+        readPos += dataSizeLength
+        readPos += dataSize
+
+/*
+        println(
+            """
+            $idElement
+            readPos = ${readPos - totalReadPos} totalReadPos = $readPos / byteSize = $byteSize
+        """.trimIndent()
+        )
+*/
+
+        totalReadPos = readPos
+
+        // もしかしたら他のブラウザでもなるかもしれないけど、
+        // Chromeの場合、WebMのファイル分割は SimpleBlock の途中だろうとぶった切ってくるらしく、中途半端にデータが余ることがある
+        // 例：タグの A3 で終わるなど
+        // その場合にエラーにならないように、この後3バイト（ID / DataSize / Data それぞれ1バイト）ない場合はループを抜ける
+        if (byteSize < totalReadPos + 3) {
+            break
+        }
+
+    }
+    return totalReadPos
 }
 
 /** DataSizeの長さが不定の場合 */
@@ -134,7 +202,7 @@ fun ByteArray.toDataSize(): Int {
 /** ByteArray から Int へ変換する。ByteArray 内にある Byte は符号なしに変換される。 */
 fun ByteArray.toInt(): Int {
     // 先頭に 0x00 があれば消す
-    val validValuePos = indexOfFirst { it != 0x00.toByte() }
+    val validValuePos = kotlin.math.max(0, this.indexOfFirst { it != 0x00.toByte() })
     var result = 0
     // 逆にする
     // これしないと左側にバイトが移動するようなシフト演算？になってしまう
