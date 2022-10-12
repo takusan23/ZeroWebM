@@ -1,5 +1,7 @@
 package io.github.takusan23.zerowebm.parser
 
+import io.github.takusan23.zerowebm.MatroskaTags
+
 /**
  * EBMLの要素を表すデータクラス
  *

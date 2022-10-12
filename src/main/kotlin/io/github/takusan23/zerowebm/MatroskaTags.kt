@@ -1,4 +1,4 @@
-package io.github.takusan23.zerowebm.parser
+package io.github.takusan23.zerowebm
 
 /** MatroskaのIDたち */
 enum class MatroskaTags(val byteArray: ByteArray) {
